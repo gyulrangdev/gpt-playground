@@ -6,8 +6,8 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "<your OpenAI API key i
 completion = client.chat.completions.create(
   model="gpt-3.5-turbo",
   messages=[
-    {"role": "system", "content": "너는 대한민국에 대해 잘 아는 사람이야."},
-    {"role": "user", "content": "대한민국 역대 대통령 순서를 알려줘."}
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "system message, user message, assistant message의 차이점을 알려줘."}
   ]
 )
 
