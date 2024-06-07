@@ -23,8 +23,10 @@ if not assistant_key:
             "It provides system designs that include distributed processing, caching, message queues, CDN, separated service workers for key functionalities, "
             "and integrated backup and logging systems. Each response includes a vertical Mermaid diagram, with all contents written in Korean, "
             "to visually represent the complete and scalable system architecture."
+            "The information from your answer would be returned as a JSON object : diagram, explain" 
         ),
-        tools=[{"type": "code_interpreter"}],
+        response_format={ "type": "json" },
+        tools=[{"type": "retrieval"}],
         model="gpt-3.5-turbo"
     )
     assistant_key = assistant.id
@@ -42,7 +44,7 @@ else:
     print(f"Using existing thread with ID: {thread_key}")
 
 # 메시지 추가
-message_content = "e북 시스템을 위한 아키텍처를 설계해줘."
+message_content = "유튜브 릴스 기능을 추가하기 위한 전체 아키텍처를 설계해줘. AWS를 이용해서 만들거야."
 message = client.beta.threads.messages.create(
     thread_id=thread_key,
     role="user",
@@ -53,11 +55,16 @@ message = client.beta.threads.messages.create(
 run = client.beta.threads.runs.create_and_poll(
     thread_id=thread_key,
     assistant_id=assistant_key,
-    instructions="한국어로 답변해. 간단한 아키텍쳐를 mermaid diagram으로 그려줘."
+    instructions='''
+    please output the information in structured JSON format without using markdown code blocks.
+    make response like this.
+    {‘diagram’: ‘mermaid diagram given by assistant’, ‘explain’: ‘your explain about architecture’}
+    '''
 )
 
 # 실행 결과 출력
 if run.status == 'completed':
+    
     messages = client.beta.threads.messages.list(thread_id=thread_key)
     for message in messages.data:
         print(message.content[0].text.value)
