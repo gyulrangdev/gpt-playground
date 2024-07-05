@@ -12,7 +12,7 @@ def initialize_openai_client():
 
 # 어시스턴트 생성 또는 로드
 def get_or_create_assistant(client, name, instructions, tools, model="gpt-3.5-turbo"):
-    assistant_key = os.environ.get(f"OPENAI_{name.upper().replace(" ",'_')}_ASSISTANT_KEY")
+    assistant_key = os.environ.get(f"OPENAI_{name.upper().replace(' ', '_')}_KEY")
     if not assistant_key:
         assistant = client.beta.assistants.create(
             name=name,
@@ -52,7 +52,9 @@ def create_and_run_message(client, thread_key, assistant_key, message_content):
         instructions='''
         please output the information in structured JSON format without using markdown code blocks.
         make response like this.
-        {‘diagram’: ‘mermaid diagram given by assistant’, ‘explain’: ‘your explain about architecture’}
+        {'requirements' : 'your system analysis of the requirements',
+        ‘diagram’: ‘mermaid diagram given by assistant’,
+        ‘explain’: ‘your explain about architecture’}
         '''
     )
     return run
@@ -61,7 +63,7 @@ def create_and_run_message(client, thread_key, assistant_key, message_content):
 def handle_required_action(client, run):
     tool_outputs = []
     
-    if run.required_action and run.required_action.submit_tool_outputs:
+    if run.required_action and hasattr(run.required_action, 'submit_tool_outputs') and run.required_action.submit_tool_outputs:
         for tool in run.required_action.submit_tool_outputs.tool_calls:
             if tool.function.name == "system_design":
                 arguments = tool.function.arguments
@@ -84,7 +86,25 @@ def handle_required_action(client, run):
         else:
             print("No tool outputs to submit.")
     
-    return run
+    return run, tool_outputs
+
+# 실행 결과 추출
+def extract_result_from_run(run):
+    tool_outputs = []
+    tool_arguments = {}
+    
+    if run.required_action and hasattr(run.required_action, 'submit_tool_outputs') and run.required_action.submit_tool_outputs:
+        for tool in run.required_action.submit_tool_outputs.tool_calls:
+            print("tool :: " , tool)
+            if tool.function.name == "system_design":
+                tool_arguments = tool.function.arguments
+                print(f"Function arguments: {tool_arguments}")  # 여기서 arguments를 출력합니다
+                tool_outputs.append({
+                    "tool_call_id": tool.id,
+                    "output": tool_arguments
+                })
+                print("tool_outputs :: " , tool_outputs)
+    return tool_outputs
 
 # 실행 결과 출력
 def print_run_status(run):
@@ -105,14 +125,41 @@ if __name__ == "__main__":
     # 어시스턴트 정의
     assistants = [
         {
-            "name": "System Designer",
+            "name": "Requirements Analysis Agent",
+            "instructions": (
+                "You are an expert in analyzing requirements for large-scale applications."
+                "Your task is to gather and analyze the requirements needed to add new features to an existing application."
+                "Each response should include a clear and detailed requirements document in JSON format."
+            ),
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "system_design",
+                        "description": "It provides analysis of the requirements needed to add new features to an existing application",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "requirements": {
+                                    "type": "string",
+                                    "description": "List up about analysis of the requirements."
+                                }
+                            },
+                            "required": ["requirements"]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "System Architecture Design Agent",
             "instructions": (
                 "You are the world's best system architecture designer. "
-                "System Designer is tailored for designing architectures for applications with over 100,000 daily active users (DAU). "
+                "System Architecture Design Agent is tailored for designing AWS infra architectures for applications with over 100,000 daily active users (DAU). "
                 "It provides system designs that include distributed processing, caching, message queues, CDN, separated service workers for key functionalities, "
                 "and integrated backup and logging systems. Each response includes a vertical Mermaid diagram, with all contents written in Korean, "
                 "to visually represent the complete and scalable system architecture."
-                "The information from your answer would be returned as a JSON object : diagram, explain"
+                "The information from your answer would be returned as a JSON object : explain"
             ),
             "tools": [
                 {
@@ -123,38 +170,44 @@ if __name__ == "__main__":
                         "parameters": {
                             "type": "object",
                             "properties": {
-                                "diagram": {
-                                    "type": "string",
-                                    "description": "Print mermaid diagram from your answer."
-                                },
                                 "explain": {
                                     "type": "string",
                                     "description": "Explain about diagram and overall architecture."
                                 }
                             },
-                            "required": ["diagram", "explain"]
+                            "required": ["explain"]
                         }
                     }
                 }
             ]
         },
         {
-            "name": "AWS Infrastructure",
+            "name": "Diagram Generation Agent",
             "instructions": (
-                "You are an expert in setting up AWS infrastructure. "
-                "AWS Infrastructure assistant helps in creating scalable and robust cloud infrastructure using AWS services."
-                "The response includes detailed architecture setup instructions with Terraform scripts, cost estimates, and scaling strategies."
-            ),
-            "tools": []
-        },
-        {
-            "name": "Diagram Generator",
-            "instructions": (
-                "You are a skilled diagram generator. "
-                "Diagram Generator assistant provides detailed, professional diagrams for system architectures."
+                "You are a skilled mermaid diagram generator. "
+                "Diagram Generation Agent provides detailed, professional diagrams for system architectures."
                 "Each response includes a clear, precise, and visually appealing diagram representing the system architecture."
+                "The information from your answer would be returned as a JSON object : diagram"
             ),
-            "tools": []
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "system_design",
+                        "description": "It provides mermaid diagram from infra architecture explanation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "diagram": {
+                                    "type": "string",
+                                    "description": "Mermaid diagram from your answer."
+                                }
+                            },
+                            "required": ["diagram"]
+                        }
+                    }
+                }
+            ]
         }
     ]
 
@@ -169,43 +222,44 @@ if __name__ == "__main__":
 
     thread_key = get_or_create_thread(client)
 
-    # 시스템 디자인 어시스턴트 실행
-    system_design_run = create_and_run_message(
+    # 요구사항 분석 에이전트 실행
+    requirements_run = create_and_run_message(
         client,
         thread_key,
-        assistant_keys["System Designer"],
-        "유튜브 릴스 기능을 추가하기 위한 전체 아키텍처를 설계해줘. AWS를 이용해서 만들거야."
+        assistant_keys["Requirements Analysis Agent"],
+        "유튜브 릴스 기능을 추가하기 위한 요구사항을 분석해줘."
     )
     
-    while system_design_run.status == 'requires_action':
-        system_design_run = handle_required_action(client, system_design_run)
-
-    print_run_status(system_design_run)
+    while requirements_run.status == 'requires_action':
+        requirements_run, requirements_result = handle_required_action(client, requirements_run)
     
-    # AWS 인프라 어시스턴트 실행
-    if system_design_run.status == 'completed':
-        aws_infra_run = create_and_run_message(
+    print(requirements_result)
+
+    # requirements_result = extract_result_from_run(requirements_run)
+
+    # 시스템 아키텍처 설계 에이전트 실행
+    if requirements_result:
+        system_design_run = create_and_run_message(
             client,
             thread_key,
-            assistant_keys["AWS Infrastructure"],
-            "위의 아키텍처에 맞는 AWS 인프라를 설정해줘."
+            assistant_keys["System Architecture Design Agent"],
+            f"유튜브 릴스 기능을 추가하기 위한 AWS 인프라 아키텍처를 설계해줘. 요구사항은 다음과 같아: {requirements_result}"
         )
         
-        while aws_infra_run.status == 'requires_action':
-            aws_infra_run = handle_required_action(client, aws_infra_run)
+        while system_design_run.status == 'requires_action':
+            system_design_run, system_design_result = handle_required_action(client, system_design_run)
 
-        print_run_status(aws_infra_run)
-    
-        # 다이어그램 생성 어시스턴트 실행
-        if aws_infra_run.status == 'completed':
+        print(system_design_result)
+        # 다이어그램 생성 에이전트 실행
+        if system_design_result:
             diagram_generator_run = create_and_run_message(
                 client,
                 thread_key,
-                assistant_keys["Diagram Generator"],
-                "위의 아키텍처를 기반으로 다이어그램을 만들어줘."
+                assistant_keys["Diagram Generation Agent"],
+                f"위의 아키텍처를 기반으로 다이어그램을 만들어줘. 아키텍처 설명은 다음과 같아: {system_design_result}"
             )
-            
-            while diagram_generator_run.status == 'requires_action':
-                diagram_generator_run = handle_required_action(client, diagram_generator_run)
 
-            print_run_status(diagram_generator_run)
+            while diagram_generator_run.status == 'requires_action':
+                diagram_generator_run, diagram_generator_result = handle_required_action(client, diagram_generator_run)
+
+            diagram_generator_result = extract_result_from_run(diagram_generator_run)
