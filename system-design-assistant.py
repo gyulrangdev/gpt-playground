@@ -50,11 +50,13 @@ def create_and_run_message(client, thread_key, assistant_key, message_content):
         thread_id=thread_key,
         assistant_id=assistant_key,
         instructions='''
-        please output the information in structured JSON format without using markdown code blocks.
+        Please ensure the response is in JSON format and includes the specific information requested.
         make response like this.
         {'requirements' : 'your system analysis of the requirements',
         ‘diagram’: ‘mermaid diagram given by assistant’,
-        ‘explain’: ‘your explain about architecture’}
+        ‘explain’: ‘your explain about architecture’,
+        'cost' : 'cost of using AWS infra structure according to architecture'
+        }
         '''
     )
     return run
@@ -194,7 +196,7 @@ if __name__ == "__main__":
                     "type": "function",
                     "function": {
                         "name": "system_design",
-                        "description": "It provides mermaid diagram from infra architecture explanation",
+                        "description": "It provides mermaid diagram from infra architecture explanation including AWS services",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -204,6 +206,34 @@ if __name__ == "__main__":
                                 }
                             },
                             "required": ["diagram"]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Cost Estimation Agent",
+            "instructions": (
+                "You are an expert in cost estimation for large-scale applications."
+                "Your task is to estimate the cost based on the system architecture provided."
+                "Each response should include a detailed cost estimation document in JSON format."
+                "The information from your answer would be returned as a JSON object : cost"
+            ),
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "system_design",
+                        "description": "It provides cost estimation based on the system architecture provided.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "cost": {
+                                    "type": "string",
+                                    "description": "Detailed cost estimation."
+                                }
+                            },
+                            "required": ["cost"]
                         }
                     }
                 }
@@ -232,13 +262,12 @@ if __name__ == "__main__":
     
     while requirements_run.status == 'requires_action':
         requirements_run, requirements_result = handle_required_action(client, requirements_run)
-    
-    print(requirements_result)
 
     # requirements_result = extract_result_from_run(requirements_run)
 
     # 시스템 아키텍처 설계 에이전트 실행
     if requirements_result:
+        print("requirements_result :: " , requirements_result)
         system_design_run = create_and_run_message(
             client,
             thread_key,
@@ -248,7 +277,7 @@ if __name__ == "__main__":
         
         while system_design_run.status == 'requires_action':
             system_design_run, system_design_result = handle_required_action(client, system_design_run)
-
+        
         print(system_design_result)
         # 다이어그램 생성 에이전트 실행
         if system_design_result:
@@ -262,4 +291,18 @@ if __name__ == "__main__":
             while diagram_generator_run.status == 'requires_action':
                 diagram_generator_run, diagram_generator_result = handle_required_action(client, diagram_generator_run)
 
-            diagram_generator_result = extract_result_from_run(diagram_generator_run)
+            print(diagram_generator_result)
+
+            # 비용 추정 에이전트 실행
+            if diagram_generator_result :
+                cost_estimation_run = create_and_run_message(
+                    client,
+                    thread_key,
+                    assistant_keys["Cost Estimation Agent"],
+                    f"DAU 10만명이 사용한다고 가정했을 때 AWS 이용 비용을 추정해줘. 아키텍처 그래프는 다음과 같아: {diagram_generator_result}"
+                )
+
+                while cost_estimation_run.status == 'requires_action' : 
+                    cost_estimation_run, cost_estimation_result = handle_required_action(client, cost_estimation_run)
+                
+                print(cost_estimation_result)
