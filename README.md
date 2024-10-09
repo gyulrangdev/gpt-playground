@@ -1,3 +1,7 @@
+# GPT playground
+개발하려는 기능을 한줄로 설명하면 그에 따른 인프라 설계와 그래프를 그려주는 코드를 작성했다.
+openAI assistant API를 few-shot으로 사용하였다.
+
 # 1. 코드 구조 설명
 
 ### 함수 설명
